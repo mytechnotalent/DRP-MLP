@@ -7153,10 +7153,13 @@ df_preprocessed.shape
 
 
 ```python
-df_preprocessed.drop(columns=[
-    "gender",
-    "family_history_diabetes",
-], inplace=True)
+df_preprocessed.drop(
+    columns=[
+        "gender",
+        "family_history_diabetes",
+    ],
+    inplace=True,
+)
 df_preprocessed
 ```
 
@@ -8232,9 +8235,7 @@ def _compute_all_metrics(y_true, y_pred, y_probs):
         dict: Metric names mapped to scores.
     """
     acc = accuracy_score(y_true, y_pred)
-    prec, rec, f1, _ = precision_recall_fscore_support(
-        y_true, y_pred, average="binary"
-    )
+    prec, rec, f1, _ = precision_recall_fscore_support(y_true, y_pred, average="binary")
     f2 = fbeta_score(y_true, y_pred, beta=2.0)
     auc_val = roc_auc_score(y_true, y_probs[:, 1])
     return {
