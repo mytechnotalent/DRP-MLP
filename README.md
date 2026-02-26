@@ -16,7 +16,6 @@ License: MIT
 # %pip install scikit-learn
 # # %pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124  # Windows with CUDA 12.4
 # %pip install torch  # MacOS or CPU-only
-# %pip install shap
 # %pip install black
 # %pip install black[jupyter]
 # %pip install nbqa
@@ -35,7 +34,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
-import shap
 from scipy import stats
 from sklearn.metrics import (
     accuracy_score,
@@ -70,7 +68,7 @@ torch.manual_seed(SEED)
 
 
 
-    <torch._C.Generator at 0x119287030>
+    <torch._C.Generator at 0x119a79bf0>
 
 
 
@@ -103,6 +101,8 @@ H2 = 16
 OUT_FEATURES = 2
 TEST_SIZE = 0.3
 DATA_PATH = "diabetes_risk_dataset.csv"
+SCALAR_PATH = "drp_scaler.pkl"
+MODEL_PATH = "drp_model.pth"
 TARGET_VAR = "diabetes_risk_score"
 CLASS_NAMES = ["Low Risk", "High Risk"]
 CLASS_MAP = {0: "Low Risk", 1: "High Risk"}
@@ -6324,7 +6324,7 @@ plt.show()
     
 
 
-### Create `features` Variable for Audit & Modeling
+### Create `features` Variable for Audit
 
 
 ```python
@@ -7155,8 +7155,8 @@ df_preprocessed.shape
 ```python
 df_preprocessed.drop(
     columns=[
-        "gender",
         "family_history_diabetes",
+        "gender",
     ],
     inplace=True,
 )
@@ -7687,6 +7687,13 @@ df_preprocessed
 </div>
 
 
+
+### Update `features` Variable for Modeling
+
+
+```python
+features = [col for col in df_preprocessed.columns if col != TARGET_VAR]
+```
 
 ## Reusable ML Pipeline
 
@@ -8284,73 +8291,6 @@ def print_summary_metrics(y_true, y_pred, y_probs):
     print("-" * 90)
 ```
 
-### SHAP Functions
-
-
-```python
-def _create_predict_fn(model, device):
-    """
-    Create a SHAP-compatible prediction function from a PyTorch model.
-
-    Parameters:
-        model (nn.Module): Trained PyTorch model.
-        device (torch.device): Computing device.
-
-    Returns:
-        callable: Function mapping numpy arrays to softmax probabilities.
-    """
-
-    def predict_fn(data_numpy):
-        """Convert numpy input to softmax probabilities via the model."""
-        tensor = torch.tensor(data_numpy).float().to(device)
-        model.eval()
-        with torch.no_grad():
-            return F.softmax(model(tensor), dim=1).cpu().numpy()
-
-    return predict_fn
-
-
-def _build_shap_explainer(model, X_train_scaled, device, n_background=100):
-    """
-    Build SHAP KernelExplainer with summarized training background.
-
-    Parameters:
-        model (nn.Module): Trained model.
-        X_train_scaled (pd.DataFrame): Scaled training features.
-        device (torch.device): Computing device.
-        n_background (int): Number of background samples for KernelExplainer.
-
-    Returns:
-        shap.KernelExplainer: Configured SHAP explainer.
-    """
-    predict_fn = _create_predict_fn(model, device)
-    n_unique = len(np.unique(X_train_scaled.values, axis=0))
-    background = shap.kmeans(X_train_scaled.values, min(n_background, n_unique))
-    return shap.KernelExplainer(predict_fn, background)
-
-
-def run_shap_analysis(model, X_train_scaled, X_test_scaled, class_names, device):
-    """
-    Run SHAP analysis and display global feature importance bar plot.
-
-    Parameters:
-        model (nn.Module): Trained model.
-        X_train_scaled (pd.DataFrame): Scaled training features.
-        X_test_scaled (pd.DataFrame): Scaled test features.
-        class_names (list): Human-readable class names.
-        device (torch.device): Computing device.
-    """
-    explainer = _build_shap_explainer(model, X_train_scaled, device)
-    shap_values = explainer.shap_values(X_test_scaled.values)
-    plt.figure(figsize=(10, 5))
-    shap.summary_plot(
-        shap_values, X_test_scaled, class_names=class_names, plot_type="bar", show=False
-    )
-    plt.xlabel("Average Absolute SHAP Value (Feature Importance)")
-    plt.tight_layout()
-    plt.show()
-```
-
 ### Inference Functions
 
 
@@ -8409,14 +8349,14 @@ def predict(model, features, class_map, device):
         return class_map[pred_class], confidence
 ```
 
-## Full-Feature Model (18 Features)
+## Model
 
 ### Data Preparation & Training
 
 
 ```python
 # Prepare data using all features (train/val/test from early split)
-X_tr_full, X_val_full, X_te_full, y_tr_full, y_val_full, y_te_full, scaler_full = (
+X_tr_full, X_val_full, X_te_full, y_tr_full, y_val_full, y_te_full, scaler = (
     prepare_data(df_train, df_test, features, TARGET_VAR, VAL_SIZE, SEED)
 )
 train_loader_full, val_loader_full, test_loader_full = create_loaders(
@@ -8433,7 +8373,7 @@ print(f"Features ({len(features)}): {features}")
 print(f"Train: {len(y_tr_full)}, Val: {len(y_val_full)}, Test: {len(y_te_full)}")
 ```
 
-    Features (18): ['age', 'gender', 'bmi', 'blood_pressure', 'fasting_glucose_level', 'insulin_level', 'HbA1c_level', 'cholesterol_level', 'triglycerides_level', 'physical_activity_level', 'daily_calorie_intake', 'sugar_intake_grams_per_day', 'sleep_hours', 'stress_level', 'family_history_diabetes', 'waist_circumference_cm', 'bmi_category', 'glucose_category']
+    Features (16): ['age', 'bmi', 'blood_pressure', 'fasting_glucose_level', 'insulin_level', 'HbA1c_level', 'cholesterol_level', 'triglycerides_level', 'physical_activity_level', 'daily_calorie_intake', 'sugar_intake_grams_per_day', 'sleep_hours', 'stress_level', 'waist_circumference_cm', 'bmi_category', 'glucose_category']
     Train: 3570, Val: 630, Test: 1800
 
 
@@ -8449,7 +8389,7 @@ optimizer = torch.optim.AdamW(model_full.parameters(), lr=LR)
 full_config = {
     "epochs": EPOCHS,
     "log_interval": LOG_INTERVAL,
-    "save_path": "drp_model_full.pth",
+    "save_path": MODEL_PATH,
     "patience": PATIENCE,
 }
 train_losses_full, val_losses_full, best_full = train_model(
@@ -8458,22 +8398,19 @@ train_losses_full, val_losses_full, best_full = train_model(
 print(f"\nBest Validation Loss: {best_full:.4f}")
 ```
 
-    Epoch 0/1000 - Train: 0.5737 - Val: 0.4138
-    Epoch 10/1000 - Train: 0.0940 - Val: 0.0891
-    Epoch 20/1000 - Train: 0.0680 - Val: 0.0815
-    Epoch 30/1000 - Train: 0.0600 - Val: 0.0803
-    Epoch 40/1000 - Train: 0.0548 - Val: 0.0827
-    Epoch 50/1000 - Train: 0.0504 - Val: 0.0791
-    Epoch 60/1000 - Train: 0.0501 - Val: 0.0766
-    Epoch 70/1000 - Train: 0.0426 - Val: 0.0835
-    Epoch 80/1000 - Train: 0.0422 - Val: 0.0806
-    Epoch 90/1000 - Train: 0.0432 - Val: 0.0830
-    Early stopping at epoch 91 (patience=50)
+    Epoch 0/1000 - Train: 0.6272 - Val: 0.4244
+    Epoch 10/1000 - Train: 0.1185 - Val: 0.1261
+    Epoch 20/1000 - Train: 0.1092 - Val: 0.1239
+    Epoch 30/1000 - Train: 0.0974 - Val: 0.1278
+    Epoch 40/1000 - Train: 0.1015 - Val: 0.1274
+    Epoch 50/1000 - Train: 0.0971 - Val: 0.1305
+    Epoch 60/1000 - Train: 0.0879 - Val: 0.1357
+    Early stopping at epoch 68 (patience=50)
     
-    Best Validation Loss: 0.0761
+    Best Validation Loss: 0.1225
 
 
-### Evaluate Full-Feature Model
+### Evaluate Model
 
 
 ```python
@@ -8489,9 +8426,9 @@ print(f"Val Accuracy:   {val_acc_full:.4f}")
 print(f"Test Accuracy:  {test_acc_full:.4f}")
 ```
 
-    Train Accuracy: 0.9891
-    Val Accuracy:   0.9683
-    Test Accuracy:  0.9744
+    Train Accuracy: 0.9681
+    Val Accuracy:   0.9476
+    Test Accuracy:  0.9511
 
 
 
@@ -8534,12 +8471,12 @@ print(classification_report(y_true_full, y_pred_full, target_names=CLASS_NAMES))
 
                   precision    recall  f1-score   support
     
-        Low Risk       0.97      0.98      0.97       900
-       High Risk       0.98      0.97      0.97       900
+        Low Risk       0.94      0.96      0.95       900
+       High Risk       0.96      0.94      0.95       900
     
-        accuracy                           0.97      1800
-       macro avg       0.97      0.97      0.97      1800
-    weighted avg       0.97      0.97      0.97      1800
+        accuracy                           0.95      1800
+       macro avg       0.95      0.95      0.95      1800
+    weighted avg       0.95      0.95      0.95      1800
     
 
 
@@ -8562,237 +8499,22 @@ print_summary_metrics(y_true_full, y_pred_full, y_probs_full)
     ------------------------------------------------------------------------------------------
     METRIC          SCORE      DESCRIPTION
     ------------------------------------------------------------------------------------------
-    Accuracy        0.9744     Overall correctness (caution: misleading if imbalanced)
-    Precision       0.9766     When predicting positive, how often correct?
-    Recall          0.9722     Of all actual positives, how many found?
-    F1-Score        0.9744     Harmonic mean of Precision & Recall
-    F2-Score        0.9731     Recall-weighted F-beta (beta=2)
-    ROC AUC         0.9979     Class separability (1.0 = perfect)
+    Accuracy        0.9511     Overall correctness (caution: misleading if imbalanced)
+    Precision       0.9582     When predicting positive, how often correct?
+    Recall          0.9433     Of all actual positives, how many found?
+    F1-Score        0.9507     Harmonic mean of Precision & Recall
+    F2-Score        0.9463     Recall-weighted F-beta (beta=2)
+    ROC AUC         0.9917     Class separability (1.0 = perfect)
     ------------------------------------------------------------------------------------------
 
 
-### SHAP Analysis — Full-Feature Model
-
-
-```python
-run_shap_analysis(model_full, X_tr_full, X_te_full, CLASS_NAMES, DEVICE)
-```
-
-
-      0%|          | 0/1800 [00:00<?, ?it/s]
-
-
-
-    <Figure size 1000x500 with 0 Axes>
-
-
-
-    
-![png](README_files/DRP-MLP_167_2.png)
-    
-
-
-## Lean-Feature Model (9 Features)
-
-### Data Preparation & Training
-
-
-```python
-# Select lean feature set based on discriminative score + domain knowledge
-features_lean = [
-    "HbA1c_level",
-    "fasting_glucose_level",
-    "bmi",
-    "insulin_level",
-    "age",
-    "blood_pressure",
-    "waist_circumference_cm",
-    "family_history_diabetes",
-    "glucose_category",
-]
-X_tr_lean, X_val_lean, X_te_lean, y_tr_lean, y_val_lean, y_te_lean, scaler_lean = (
-    prepare_data(df_train, df_test, features_lean, TARGET_VAR, VAL_SIZE, SEED)
-)
-train_loader_lean, val_loader_lean, test_loader_lean = create_loaders(
-    X_tr_lean,
-    X_val_lean,
-    X_te_lean,
-    y_tr_lean,
-    y_val_lean,
-    y_te_lean,
-    DEVICE,
-    BATCH_SIZE,
-)
-print(f"Features ({len(features_lean)}): {features_lean}")
-print(f"Train: {len(y_tr_lean)}, Val: {len(y_val_lean)}, Test: {len(y_te_lean)}")
-```
-
-    Features (9): ['HbA1c_level', 'fasting_glucose_level', 'bmi', 'insulin_level', 'age', 'blood_pressure', 'waist_circumference_cm', 'family_history_diabetes', 'glucose_category']
-    Train: 3570, Val: 630, Test: 1800
-
-
-
-```python
-# Create and train the lean-feature model
-model_lean = DiabetesMLP(
-    in_features=len(features_lean),
-    h1=H1,
-    h2=H2,
-    out_features=OUT_FEATURES,
-    dropout=DROPOUT,
-).to(DEVICE)
-class_weights_lean = _compute_class_weights(y_tr_lean, DEVICE)
-criterion = nn.CrossEntropyLoss(weight=class_weights_lean)
-optimizer = torch.optim.AdamW(model_lean.parameters(), lr=LR)
-lean_config = {
-    "epochs": EPOCHS,
-    "log_interval": LOG_INTERVAL,
-    "save_path": "drp_model_lean.pth",
-    "patience": PATIENCE,
-}
-train_losses_lean, val_losses_lean, best_lean = train_model(
-    model_lean, train_loader_lean, val_loader_lean, criterion, optimizer, lean_config
-)
-print(f"\nBest Validation Loss: {best_lean:.4f}")
-```
-
-    Epoch 0/1000 - Train: 0.5410 - Val: 0.3906
-    Epoch 10/1000 - Train: 0.1096 - Val: 0.0972
-    Epoch 20/1000 - Train: 0.0936 - Val: 0.0999
-    Epoch 30/1000 - Train: 0.0844 - Val: 0.1039
-    Epoch 40/1000 - Train: 0.0767 - Val: 0.1028
-    Epoch 50/1000 - Train: 0.0788 - Val: 0.1079
-    Early stopping at epoch 58 (patience=50)
-    
-    Best Validation Loss: 0.0949
-
-
-### Evaluate Lean-Feature Model
-
-
-```python
-# Collect predictions and compute accuracy
-y_true_lean, y_pred_lean, y_probs_lean = collect_predictions(
-    model_lean, test_loader_lean
-)
-train_acc_lean = accuracy_score(*collect_predictions(model_lean, train_loader_lean)[:2])
-val_acc_lean = accuracy_score(*collect_predictions(model_lean, val_loader_lean)[:2])
-test_acc_lean = accuracy_score(y_true_lean, y_pred_lean)
-print(f"Train Accuracy: {train_acc_lean:.4f}")
-print(f"Val Accuracy:   {val_acc_lean:.4f}")
-print(f"Test Accuracy:  {test_acc_lean:.4f}")
-```
-
-    Train Accuracy: 0.9706
-    Val Accuracy:   0.9556
-    Test Accuracy:  0.9594
-
-
-
-```python
-plot_accuracy_pies(train_acc_lean, test_acc_lean)
-```
-
-
-    
-![png](README_files/DRP-MLP_174_0.png)
-    
-
-
-
-```python
-plot_confusion_matrix(y_true_lean, y_pred_lean, CLASS_NAMES)
-```
-
-
-    
-![png](README_files/DRP-MLP_175_0.png)
-    
-
-
-
-```python
-plot_loss_curves(train_losses_lean, val_losses_lean)
-```
-
-
-    
-![png](README_files/DRP-MLP_176_0.png)
-    
-
-
-
-```python
-print(classification_report(y_true_lean, y_pred_lean, target_names=CLASS_NAMES))
-```
-
-                  precision    recall  f1-score   support
-    
-        Low Risk       0.96      0.95      0.96       900
-       High Risk       0.95      0.96      0.96       900
-    
-        accuracy                           0.96      1800
-       macro avg       0.96      0.96      0.96      1800
-    weighted avg       0.96      0.96      0.96      1800
-    
-
-
-
-```python
-plot_roc_curve(y_true_lean, y_probs_lean)
-```
-
-
-    
-![png](README_files/DRP-MLP_178_0.png)
-    
-
-
-
-```python
-print_summary_metrics(y_true_lean, y_pred_lean, y_probs_lean)
-```
-
-    ------------------------------------------------------------------------------------------
-    METRIC          SCORE      DESCRIPTION
-    ------------------------------------------------------------------------------------------
-    Accuracy        0.9594     Overall correctness (caution: misleading if imbalanced)
-    Precision       0.9549     When predicting positive, how often correct?
-    Recall          0.9644     Of all actual positives, how many found?
-    F1-Score        0.9596     Harmonic mean of Precision & Recall
-    F2-Score        0.9625     Recall-weighted F-beta (beta=2)
-    ROC AUC         0.9951     Class separability (1.0 = perfect)
-    ------------------------------------------------------------------------------------------
-
-
-### SHAP Analysis — Lean-Feature Model
-
-
-```python
-run_shap_analysis(model_lean, X_tr_lean, X_te_lean, CLASS_NAMES, DEVICE)
-```
-
-
-      0%|          | 0/1800 [00:00<?, ?it/s]
-
-
-
-    <Figure size 1000x500 with 0 Axes>
-
-
-
-    
-![png](README_files/DRP-MLP_181_2.png)
-    
-
-
-### Save Lean Model Artifacts
+### Save Model Artifacts
 
 
 ```python
 # Save lean model scaler for production inference
-joblib.dump(scaler_lean, "drp_scaler.pkl")
-print("Scaler Saved: 'drp_scaler.pkl'")
+joblib.dump(scaler, SCALAR_PATH)
+print(f"Scaler Saved: '{SCALAR_PATH}'")
 ```
 
     Scaler Saved: 'drp_scaler.pkl'
@@ -8805,24 +8527,24 @@ print("Scaler Saved: 'drp_scaler.pkl'")
 
 ```python
 loaded_model = DiabetesMLP(
-    in_features=len(features_lean), h1=H1, h2=H2, out_features=OUT_FEATURES
+    in_features=len(features), h1=H1, h2=H2, out_features=OUT_FEATURES
 ).to(DEVICE)
 loaded_model.load_state_dict(
-    torch.load("drp_model_lean.pth", map_location=DEVICE, weights_only=True)
+    torch.load(MODEL_PATH, map_location=DEVICE, weights_only=True)
 )
 loaded_model.eval()
-print("Model Loaded: 'drp_model_lean.pth'")
+print(f"Model Loaded: '{MODEL_PATH}'")
 ```
 
-    Model Loaded: 'drp_model_lean.pth'
+    Model Loaded: 'drp_model.pth'
 
 
 ### Load Scaler
 
 
 ```python
-scaler = joblib.load("drp_scaler.pkl")
-print("Scaler Loaded: 'drp_scaler.pkl'")
+scaler = joblib.load(SCALAR_PATH)
+print(f"Scaler Loaded: '{SCALAR_PATH}'")
 ```
 
     Scaler Loaded: 'drp_scaler.pkl'
@@ -8832,26 +8554,40 @@ print("Scaler Loaded: 'drp_scaler.pkl'")
 
 
 ```python
-# 1. Define Raw Data (matching features_lean order)
-HbA1c_level = 6.5  # elevated glycated hemoglobin
-fasting_glucose_level = 120.0  # borderline high fasting glucose
+# 1. Define Raw Data (matching features_lean order — ranked by importance)
 bmi = 31.5  # obese BMI range
-insulin_level = 15.0  # moderate insulin
-age = 45.0  # middle-aged patient
-blood_pressure = 140.0  # stage 1 hypertension
 waist_circumference_cm = 95.0  # elevated waist circumference
-family_history_diabetes = 1.0  # has family history (encoded)
+daily_calorie_intake = 2800.0  # high calorie intake
+triglycerides_level = 220.0  # elevated triglycerides
+fasting_glucose_level = 120.0  # borderline high fasting glucose
+HbA1c_level = 6.5  # elevated glycated hemoglobin
+sugar_intake_grams_per_day = 60.0  # high sugar intake
+blood_pressure = 140.0  # stage 1 hypertension
+insulin_level = 15.0  # moderate insulin
+cholesterol_level = 240.0  # borderline high cholesterol
+stress_level = 7.0  # elevated stress (scale 0-10)
+bmi_category = 2.0  # obese category (encoded)
+physical_activity_level = 1.0  # low activity (encoded)
 glucose_category = 1.0  # prediabetic (encoded)
+sleep_hours = 5.5  # insufficient sleep
+age = 45.0  # middle-aged patient
 raw_patient = [
-    HbA1c_level,
-    fasting_glucose_level,
     bmi,
-    insulin_level,
-    age,
-    blood_pressure,
     waist_circumference_cm,
-    family_history_diabetes,
+    daily_calorie_intake,
+    triglycerides_level,
+    fasting_glucose_level,
+    HbA1c_level,
+    sugar_intake_grams_per_day,
+    blood_pressure,
+    insulin_level,
+    cholesterol_level,
+    stress_level,
+    bmi_category,
+    physical_activity_level,
     glucose_category,
+    sleep_hours,
+    age,
 ]
 
 # 2. CRITICAL: Scale using the fitted scaler from training
@@ -8864,7 +8600,7 @@ print(f"Predicted Risk:     {risk_class}")
 print(f"Confidence:         {confidence:.2%}")
 ```
 
-    Raw Input:          [6.5, 120.0, 31.5, 15.0, 45.0, 140.0, 95.0, 1.0, 1.0]
+    Raw Input:          [31.5, 95.0, 2800.0, 220.0, 120.0, 6.5, 60.0, 140.0, 15.0, 240.0, 7.0, 2.0, 1.0, 1.0, 5.5, 45.0]
     Predicted Risk:     High Risk
-    Confidence:         96.01%
+    Confidence:         100.00%
 
