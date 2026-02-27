@@ -68,7 +68,7 @@ torch.manual_seed(SEED)
 
 
 
-    <torch._C.Generator at 0x119a79bf0>
+    <torch._C.Generator at 0x117029a50>
 
 
 
@@ -7693,7 +7693,30 @@ df_preprocessed
 
 ```python
 features = [col for col in df_preprocessed.columns if col != TARGET_VAR]
+features
 ```
+
+
+
+
+    ['age',
+     'bmi',
+     'blood_pressure',
+     'fasting_glucose_level',
+     'insulin_level',
+     'HbA1c_level',
+     'cholesterol_level',
+     'triglycerides_level',
+     'physical_activity_level',
+     'daily_calorie_intake',
+     'sugar_intake_grams_per_day',
+     'sleep_hours',
+     'stress_level',
+     'waist_circumference_cm',
+     'bmi_category',
+     'glucose_category']
+
+
 
 ## Reusable ML Pipeline
 
@@ -8512,7 +8535,7 @@ print_summary_metrics(y_true_full, y_pred_full, y_probs_full)
 
 
 ```python
-# Save lean model scaler for production inference
+# Save model scaler for production inference
 joblib.dump(scaler, SCALAR_PATH)
 print(f"Scaler Saved: '{SCALAR_PATH}'")
 ```
